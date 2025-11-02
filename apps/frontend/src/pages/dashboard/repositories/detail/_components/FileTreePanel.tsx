@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
@@ -198,100 +198,87 @@ const FileTreeNode = memo<{
 FileTreeNode.displayName = 'FileTreeNode';
 
 export const FileTreePanel = ({ repository }: FileTreePanelProps) => {
+  // Constants
+  const MAX_RETRIES = 3;
+  const STALE_TIME = 30 * 60 * 1000; // 30 minutes
+  const GC_TIME = 60 * 60 * 1000; // 1 hour
+
   // External Hooks
   const repositoryService = useRepositoryService();
   const { status, connectGitHub } = useGitHubAuth();
   const queryClient = useQueryClient();
 
-  // React Query for file tree data with aggressive caching to prevent refetches
+  // React Query for file tree data
   const {
     data: fileTree = [],
     isLoading,
     error,
-    refetch,
-    isFetching,
   } = useQuery({
     queryKey: ['repository', 'file-tree', repository.id],
     queryFn: async () => {
+      console.log('[FileTreePanel] Executing file tree API call', {
+        repositoryId: repository.id,
+        timestamp: new Date().toISOString(),
+      });
+
       const { data, error } = await repositoryService.getRepositoryFileTree(repository.id);
 
       if (error) {
+        console.log('[FileTreePanel] File tree API call failed', {
+          repositoryId: repository.id,
+          error: error.message,
+          statusCode: (error as ApiError)?.statusCode,
+          timestamp: new Date().toISOString(),
+        });
         throw error;
       }
+
+      console.log('[FileTreePanel] File tree API call succeeded', {
+        repositoryId: repository.id,
+        dataLength: data?.length,
+        timestamp: new Date().toISOString(),
+      });
 
       return sortFileTree(data || []);
     },
     enabled: status?.connected ?? false,
-    staleTime: 30 * 60 * 1000, // 30 minutes - data stays fresh much longer
-    gcTime: 60 * 60 * 1000, // 1 hour - cache retention extended
+    staleTime: STALE_TIME,
+    gcTime: GC_TIME,
     retry: (failureCount, error: ApiError) => {
       // Don't retry on 401 errors (authentication issues)
       if (error?.statusCode === 401) {
+        console.log('[FileTreePanel] 401 error detected - token expired, will not retry', {
+          error: error.message,
+          statusCode: error.statusCode,
+          repositoryId: repository.id,
+          timestamp: new Date().toISOString(),
+        });
         return false;
       }
-      // Retry up to 3 times for other errors
-      return failureCount < 3;
+      // Retry up to MAX_RETRIES times for other errors
+      return failureCount < MAX_RETRIES;
     },
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff
-    refetchOnWindowFocus: false, // Don't refetch on window focus for file tree
-    refetchOnReconnect: false, // Don't auto-refetch on reconnect (we have manual refetch)
-    refetchOnMount: false, // Don't refetch when component mounts if data exists
-    refetchInterval: false, // No polling for file tree data
-    // Use placeholder data from cache immediately (prevents loading flash)
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
+    refetchInterval: false,
     placeholderData: keepPreviousData,
   });
 
-  // Aggressive cache prefetching - prefetch when repository changes
-  useEffect(() => {
-    if (status?.connected && repository.id) {
-      // Check if we have cached data
-      const cachedData = queryClient.getQueryData(['repository', 'file-tree', repository.id]);
-
-      // If no cached data and not currently fetching, prefetch silently
-      if (!cachedData && !isFetching) {
-        queryClient.prefetchQuery({
-          queryKey: ['repository', 'file-tree', repository.id],
-          queryFn: async () => {
-            const { data, error } = await repositoryService.getRepositoryFileTree(repository.id);
-            if (error) throw error;
-            return sortFileTree(data || []);
-          },
-          staleTime: 30 * 60 * 1000,
-        });
-      }
-    }
-  }, [repository.id, status?.connected, queryClient, repositoryService, isFetching]);
-
-  // Cache management utilities (available for future use)
-  const _clearFileTreeCache = useCallback(() => {
-    queryClient.removeQueries({
-      queryKey: ['repository', 'file-tree', repository.id],
-    });
-  }, [queryClient, repository.id]);
-
-  const _prefetchFileTree = useCallback(
-    async (repoId: string) => {
-      await queryClient.prefetchQuery({
-        queryKey: ['repository', 'file-tree', repoId],
-        queryFn: async () => {
-          const { data, error } = await repositoryService.getRepositoryFileTree(repoId);
-          if (error) throw error;
-          return sortFileTree(data || []);
-        },
-        staleTime: 30 * 60 * 1000,
-      });
-    },
-    [queryClient, repositoryService]
-  );
-
+  // Event Handlers
   const handleReconnect = useCallback(async () => {
-    await connectGitHub();
-    // Invalidate and refetch after successful reconnection
-    await queryClient.invalidateQueries({
-      queryKey: ['repository', 'file-tree', repository.id],
-    });
-    await refetch();
-  }, [connectGitHub, queryClient, repository.id, refetch]);
+    try {
+      await connectGitHub();
+
+      // Invalidate and refetch file tree after reconnection
+      await queryClient.invalidateQueries({
+        queryKey: ['repository', 'file-tree', repository.id],
+      });
+    } catch (err) {
+      console.error('Failed to reconnect GitHub:', err);
+    }
+  }, [connectGitHub, queryClient, repository.id]);
 
   const handleToggle = useCallback(
     (path: string) => {
@@ -331,6 +318,15 @@ export const FileTreePanel = ({ repository }: FileTreePanelProps) => {
   if (error) {
     const apiError = error as ApiError;
     const isAuthError = apiError?.statusCode === 401;
+
+    if (isAuthError) {
+      console.log('[FileTreePanel] Displaying 401 auth error UI to user', {
+        error: apiError?.message,
+        statusCode: apiError?.statusCode,
+        repositoryId: repository.id,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     return (
       <div className="p-4">

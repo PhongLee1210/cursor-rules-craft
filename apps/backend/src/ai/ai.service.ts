@@ -7,7 +7,7 @@ import {
 import { AIProvider, type ModelOptions } from '@backend/ai/types';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { generateText, streamText, type ModelMessage } from 'ai';
+import { generateText, streamText, type LanguageModel, type ModelMessage } from 'ai';
 
 /**
  * AI Service
@@ -38,14 +38,8 @@ export class AIService {
   /**
    * Create a model instance with the specified configuration
    */
-  createModel(options: ModelOptions = {}) {
-    const provider = options.provider || AIProvider.GROQ;
-    const apiKey = options.apiKey || this.getProviderApiKey(provider);
-
-    return createAIModel({
-      ...options,
-      apiKey,
-    });
+  createModel(options: ModelOptions = {}): LanguageModel {
+    return createAIModel(options);
   }
 
   /**
@@ -105,18 +99,52 @@ export class AIService {
     provider?: AIProvider;
     temperature?: number;
     maxTokens?: number;
+    // Groq-specific options
+    reasoningFormat?: 'parsed' | 'hidden' | 'raw';
+    reasoningEffort?: 'low' | 'medium' | 'high' | 'none' | 'default';
+    parallelToolCalls?: boolean;
+    user?: string;
+    serviceTier?: 'on_demand' | 'flex' | 'auto';
   }) {
-    const { messages, system, model, provider, temperature, maxTokens } = options;
+    const {
+      messages,
+      system,
+      model,
+      provider,
+      temperature,
+      maxTokens,
+      reasoningFormat,
+      reasoningEffort,
+      parallelToolCalls,
+      user,
+      serviceTier,
+    } = options;
 
     const aiModel = this.createModel({ model, provider });
 
-    return streamText({
+    const streamOptions: Parameters<typeof streamText>[0] = {
       model: aiModel,
       messages,
       system,
       temperature,
       ...(maxTokens && { maxTokens }),
-    });
+    };
+
+    // Add Groq-specific provider options if applicable
+    if (provider === AIProvider.GROQ) {
+      const groqOptions: Record<string, unknown> = {};
+      if (reasoningFormat) groqOptions.reasoningFormat = reasoningFormat;
+      if (reasoningEffort) groqOptions.reasoningEffort = reasoningEffort;
+      if (parallelToolCalls !== undefined) groqOptions.parallelToolCalls = parallelToolCalls;
+      if (user) groqOptions.user = user;
+      if (serviceTier) groqOptions.serviceTier = serviceTier;
+
+      if (Object.keys(groqOptions).length > 0) {
+        (streamOptions as Record<string, unknown>).providerOptions = { groq: groqOptions };
+      }
+    }
+
+    return streamText(streamOptions);
   }
 
   /**

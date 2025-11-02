@@ -1,6 +1,3 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-
-import { experimental_useObject as useObject } from '@ai-sdk/react';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { t } from '@lingui/macro';
@@ -16,14 +13,12 @@ import {
 } from '@phosphor-icons/react';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import z from 'zod';
 
 import { Button } from '@frontend/components/Button';
 import { IconButton } from '@frontend/components/IconButton';
-import { RuleGenerationPanel } from '@frontend/components/chat';
 import { useRepositoryService } from '@frontend/hooks/useRepositoryService';
-import { useRuleGeneration } from '@frontend/hooks/useRuleGeneration';
 import { cn } from '@frontend/lib/utils';
 import type { IFileTreeNode } from '@frontend/services/repository/repository';
 import { KindState, type State } from '@frontend/types';
@@ -42,17 +37,28 @@ export const RepositoryDetailPage = () => {
   // State
   const [repository, setRepository] = useState<Repository | null>(null);
   const [state, setState] = useState<State>();
-  const [isRateLimited, setIsRateLimited] = useState(false);
 
   const [showLeftPanel, setShowLeftPanel] = useState(true);
-  const [showRightPanel, setShowRightPanel] = useState(true);
+  const [showRightPanel, setShowRightPanel] = useState(false);
   const [activeDragItem, setActiveDragItem] = useState<IFileTreeNode | null>(null);
+  const [isGeneratingRules, setIsGeneratingRules] = useState(false);
+  const [streamingRuleContent, setStreamingRuleContent] = useState('');
+  const [ruleMeta, setRuleMeta] = useState<{
+    id: string;
+    rule_type: string;
+    tech_stack: string[];
+    filename: string;
+    schema_version: string;
+  } | null>(null);
+  const [clarifyMessage, setClarifyMessage] = useState<{
+    message: string;
+    required_fields: string[];
+  } | null>(null);
 
   // External Hooks
   const { id: repositoryId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const repositoryService = useRepositoryService();
-  const ruleGeneration = useRuleGeneration();
 
   // Setup drag and drop sensors with activation constraints
   const sensors = useSensors(
@@ -93,75 +99,6 @@ export const RepositoryDetailPage = () => {
 
     void fetchRepository();
   }, [repositoryId, repositoryService]);
-
-  const { object, submit, isLoading, stop, error } = useObject({
-    api: '/api/chat',
-    schema: z.object({ content: z.string() }),
-    onError: (error) => {
-      console.error('Error submitting request:', error);
-      if (error.message.includes('limit')) {
-        setIsRateLimited(true);
-      }
-
-      //   setErrorMessage(error.message);
-    },
-    onFinish: async ({ object: fragment, error }) => {
-      if (!error) {
-        // send it to /api/sandbox
-        console.log('fragment', fragment);
-        // posthog.capture('fragment_generated', {
-        //   template: fragment?.template,
-        // });
-
-        // const response = await fetch('/api/sandbox', {
-        //   method: 'POST',
-        //   body: JSON.stringify({
-        //     fragment,
-        //     userID: session?.user?.id,
-        //     teamID: userTeam?.id,
-        //     accessToken: session?.access_token,
-        //   }),
-        // });
-
-        // const result = await response.json();
-        // console.log('result', result);
-        // posthog.capture('sandbox_created', { url: result.url });
-
-        // setResult(result);
-        // setCurrentPreview({ fragment, result });
-        // setMessage({ result });
-        // setCurrentTab('fragment');
-        // setIsPreviewLoading(false);
-      }
-    },
-  });
-
-  useEffect(() => {
-    if (object) {
-      //   setFragment(object);
-      //   const content: Message['content'] = [
-      //     { type: 'text', text: object.commentary || '' },
-      //     { type: 'code', text: object.code || '' },
-      //   ];
-      //   if (!lastMessage || lastMessage.role !== 'assistant') {
-      //     addMessage({
-      //       role: 'assistant',
-      //       content,
-      //       object,
-      //     });
-      //   }
-      //   if (lastMessage && lastMessage.role === 'assistant') {
-      //     setMessage({
-      //       content,
-      //       object,
-      //     });
-      //   }
-    }
-  }, [object]);
-
-  useEffect(() => {
-    if (error) stop();
-  }, [error, stop]);
 
   // Event Handlers
   const handleBack = useCallback(() => {
@@ -208,6 +145,38 @@ export const RepositoryDetailPage = () => {
 
   const handleResetSession = useCallback(() => {
     aiChatPanelRef.current?.resetSession();
+    setClarifyMessage(null); // Clear clarify message on session reset
+  }, []);
+
+  const handleRuleGenerationStart = useCallback(
+    (meta: {
+      id: string;
+      rule_type: string;
+      tech_stack: string[];
+      filename: string;
+      schema_version: string;
+    }) => {
+      setIsGeneratingRules(true);
+      setRuleMeta(meta);
+      setStreamingRuleContent('');
+      setShowRightPanel(true);
+    },
+    []
+  );
+
+  const handleRuleGenerationUpdate = useCallback((content: string) => {
+    setStreamingRuleContent(content);
+  }, []);
+
+  const handleRuleGenerationEnd = useCallback(() => {
+    setIsGeneratingRules(false);
+  }, []);
+
+  const handleClarify = useCallback((payload: { message: string; required_fields: string[] }) => {
+    setClarifyMessage(payload);
+    // Clear any previous rule content and meta when clarifying
+    setStreamingRuleContent('');
+    setRuleMeta(null);
   }, []);
 
   // Early Returns
@@ -315,7 +284,10 @@ export const RepositoryDetailPage = () => {
               <AIChatPanel
                 ref={aiChatPanelRef}
                 repository={repository}
-                ruleGeneration={ruleGeneration}
+                onRuleGenerationStart={handleRuleGenerationStart}
+                onRuleGenerationUpdate={handleRuleGenerationUpdate}
+                onRuleGenerationEnd={handleRuleGenerationEnd}
+                onClarify={handleClarify}
               />
             </div>
           </main>
@@ -327,9 +299,105 @@ export const RepositoryDetailPage = () => {
               showRightPanel ? 'min-w-80' : 'w-fit'
             )}
           >
+            <div className="border-border flex h-[57px] items-center justify-between border-b px-4 py-3">
+              {showRightPanel ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <FileCodeIcon size={20} className="text-primary" />
+                    <span className="font-semibold">
+                      {isGeneratingRules ? 'Generating Rules...' : 'Cursor Rules'}
+                    </span>
+                  </div>
+                  <IconButton
+                    onClick={() => setShowRightPanel(false)}
+                    label={t`Hide rules`}
+                    icon={<CaretRightIcon size={18} />}
+                    hoverable={false}
+                  />
+                </>
+              ) : (
+                <IconButton
+                  onClick={() => setShowRightPanel(true)}
+                  label={t`Show rules`}
+                  icon={<FileCodeIcon size={18} />}
+                  hoverable={false}
+                />
+              )}
+            </div>
+
             {showRightPanel && (
-              <div className="scrollbar-macos flex-1 overflow-y-auto">
-                <RuleGenerationPanel state={ruleGeneration} />
+              <div className="scrollbar-macos flex-1 overflow-y-auto p-4">
+                {clarifyMessage ? (
+                  <div className="space-y-4">
+                    <div className="text-warning">
+                      <h3 className="mb-2 font-semibold">Clarification Needed</h3>
+                      <p className="text-sm">{clarifyMessage.message}</p>
+                      {clarifyMessage.required_fields.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-muted-foreground text-xs">Required information:</p>
+                          <ul className="mt-1 text-xs">
+                            {clarifyMessage.required_fields.map((field) => (
+                              <li key={field} className="text-warning">
+                                • {field.replace('_', ' ')}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : isGeneratingRules ? (
+                  <div className="space-y-4">
+                    <div className="text-muted-foreground text-sm">
+                      <p>
+                        <strong>Rule Type:</strong> {ruleMeta?.rule_type}
+                      </p>
+                      <p>
+                        <strong>Filename:</strong> {ruleMeta?.filename}
+                      </p>
+                      {ruleMeta?.tech_stack && ruleMeta.tech_stack.length > 0 && (
+                        <p>
+                          <strong>Tech Stack:</strong> {ruleMeta.tech_stack.join(', ')}
+                        </p>
+                      )}
+                    </div>
+                    <div className="bg-muted/30 rounded-lg border p-3">
+                      <pre className="whitespace-pre-wrap font-mono text-xs">
+                        {streamingRuleContent || 'Generating...'}
+                      </pre>
+                    </div>
+                  </div>
+                ) : streamingRuleContent ? (
+                  <div className="space-y-4">
+                    <div className="text-muted-foreground text-sm">
+                      <p>
+                        <strong>Rule Type:</strong> {ruleMeta?.rule_type}
+                      </p>
+                      <p>
+                        <strong>Filename:</strong> {ruleMeta?.filename}
+                      </p>
+                      {ruleMeta?.tech_stack && ruleMeta.tech_stack.length > 0 && (
+                        <p>
+                          <strong>Tech Stack:</strong> {ruleMeta.tech_stack.join(', ')}
+                        </p>
+                      )}
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <pre className="whitespace-pre-wrap font-mono text-xs">
+                        {streamingRuleContent}
+                      </pre>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-muted-foreground text-center">
+                    <p className="text-sm">
+                      Cursor rules will appear here when generated by the AI Agent.
+                    </p>
+                    <p className="mt-2 text-xs">
+                      Ask the AI Agent to create cursor rules for your project!
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </aside>

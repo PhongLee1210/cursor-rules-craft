@@ -1,8 +1,3 @@
-export {
-  AIPreferencesService,
-  type AIUsageStatistics,
-  type UserAIPreferences,
-} from '@backend/ai/ai-preferences.service';
 export { AIController } from '@backend/ai/ai.controller';
 export { AIModule } from '@backend/ai/ai.module';
 export { AIService } from '@backend/ai/ai.service';

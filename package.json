@@ -112,6 +112,7 @@
     "webpack-node-externals": "^3.0.0"
   },
   "dependencies": {
+    "@ai-sdk/groq": "^2.0.26",
     "@ai-sdk/openai": "^2.0.52",
     "@ai-sdk/react": "^2.0.76",
     "@clerk/backend": "^2.17.2",

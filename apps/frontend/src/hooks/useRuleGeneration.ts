@@ -27,6 +27,11 @@ export interface UseRuleGenerationReturn extends RuleGenerationState {
     request: RuleGenerationRequest,
     onChunk?: (chunk: RuleGenerationStreamChunk) => void
   ) => Promise<RuleGenerationResponse>;
+  setRuleContent: (
+    content: string,
+    ruleType?: 'PROJECT_RULE' | 'COMMAND' | 'USER_RULE',
+    fileName?: string
+  ) => void;
   detectRuleIntent: (message: string) => RuleGenerationIntent;
   reset: () => void;
 }
@@ -217,6 +222,25 @@ export function useRuleGeneration(): UseRuleGenerationReturn {
     return classifyRuleIntent(message);
   }, []);
 
+  const setRuleContent = useCallback(
+    (
+      content: string,
+      ruleType: 'PROJECT_RULE' | 'COMMAND' | 'USER_RULE' = 'PROJECT_RULE',
+      fileName?: string
+    ) => {
+      setState((prev) => ({
+        ...prev,
+        ruleContent: content,
+        currentPhase: 'completed',
+        metadata: {
+          ruleType,
+          fileName: fileName || 'agent-generated-rule',
+        },
+      }));
+    },
+    []
+  );
+
   const reset = useCallback(() => {
     setState({
       isGenerating: false,
@@ -232,6 +256,7 @@ export function useRuleGeneration(): UseRuleGenerationReturn {
   return {
     ...state,
     generateRule,
+    setRuleContent,
     detectRuleIntent,
     reset,
   };

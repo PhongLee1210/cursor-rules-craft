@@ -1,5 +1,6 @@
-import { createOpenAI } from '@ai-sdk/openai';
+import { groq } from '@ai-sdk/groq';
 import { AIProvider, PROVIDER_CONFIGS, type ModelOptions } from '@backend/ai/types';
+import type { LanguageModel } from 'ai';
 
 /**
  * Create an AI model instance based on provider configuration
@@ -27,7 +28,7 @@ import { AIProvider, PROVIDER_CONFIGS, type ModelOptions } from '@backend/ai/typ
  * });
  * ```
  */
-export function createAIModel(options: ModelOptions = {}) {
+export function createAIModel(options: ModelOptions = {}): LanguageModel {
   const { provider = AIProvider.GROQ, model, apiKey } = options;
 
   const config = PROVIDER_CONFIGS[provider];
@@ -35,10 +36,7 @@ export function createAIModel(options: ModelOptions = {}) {
 
   switch (provider) {
     case AIProvider.GROQ:
-      return createOpenAI({
-        apiKey: apiKey || process.env.GROQ_API_KEY,
-        baseURL: config.baseURL,
-      })(modelName);
+      return groq(modelName);
 
     // Future providers can be added here:
     // case AIProvider.OPENAI:

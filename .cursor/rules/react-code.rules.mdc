@@ -5,14 +5,16 @@ alwaysApply: false
 ---
 ## Performance Best Practices
 
-### Use `useCallback` for Event Handlers
-Wrap event handlers with `useCallback`:
-```tsx
-const handleClick = useCallback(() => {
-  doSomething();
-}, [dependencies]);
+### Prefer Simple Functions Over `useCallback`
+Avoid wrapping handlers in `useCallback` unless:
+- The function is passed to a memoized child (`React.memo`, `useMemo`, etc.)
+- It prevents re-renders or improves performance measurably
 
-<Button onClick={handleClick} />
+✅ Prefer:
+```tsx
+const handleClick = () => {
+  doSomething();
+};
 ```
 
 ### Use `useMemo` for Expensive Computations

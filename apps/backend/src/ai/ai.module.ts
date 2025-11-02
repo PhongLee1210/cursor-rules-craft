@@ -1,8 +1,6 @@
-import { AIPreferencesService } from '@backend/ai/ai-preferences.service';
 import { AIController } from '@backend/ai/ai.controller';
 import { AIService } from '@backend/ai/ai.service';
 import { PromptTemplateService } from '@backend/ai/prompt-template.service';
-import { SupabaseModule } from '@backend/supabase/supabase.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
@@ -39,9 +37,9 @@ import { ConfigModule } from '@nestjs/config';
  * ```
  */
 @Module({
-  imports: [ConfigModule, SupabaseModule],
+  imports: [ConfigModule],
   controllers: [AIController],
-  providers: [AIService, AIPreferencesService, PromptTemplateService],
-  exports: [AIService, AIPreferencesService, PromptTemplateService],
+  providers: [AIService, PromptTemplateService],
+  exports: [AIService, PromptTemplateService],
 })
 export class AIModule {}

@@ -73,55 +73,12 @@ export function useGitHubAuth() {
         return;
       }
 
-      const authUrl = result.data.authUrl;
-
-      // Open in a popup window for better UX
-      const width = 600;
-      const height = 700;
-      const left = window.screen.width / 2 - width / 2;
-      const top = window.screen.height / 2 - height / 2;
-
-      const popup = window.open(
-        authUrl,
-        'GitHub Authorization',
-        `width=${width},height=${height},left=${left},top=${top}`
-      );
-
-      // Poll for popup close or message
-      const pollTimer = setInterval(() => {
-        if (popup?.closed) {
-          clearInterval(pollTimer);
-          // Refetch GitHub status after popup closes
-          queryClient.invalidateQueries({ queryKey: ['github', 'status'] });
-        }
-      }, 500);
-
-      // Listen for messages from popup
-      const messageHandler = (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-
-        if (event.data.type === 'github-oauth-success') {
-          clearInterval(pollTimer);
-          popup?.close();
-          queryClient.invalidateQueries({ queryKey: ['github', 'status'] });
-          window.removeEventListener('message', messageHandler);
-        } else if (event.data.type === 'github-oauth-error') {
-          clearInterval(pollTimer);
-          console.error('GitHub OAuth error:', event.data.message);
-          window.removeEventListener('message', messageHandler);
-        }
-      };
-
-      window.addEventListener('message', messageHandler);
-
-      return () => {
-        clearInterval(pollTimer);
-        window.removeEventListener('message', messageHandler);
-      };
+      // Redirect to GitHub authorization URL
+      window.location.href = result.data.authUrl;
     } catch (error) {
       console.error('Failed to connect GitHub:', error);
     }
-  }, [queryClient, repositoryService]);
+  }, [repositoryService]);
 
   return {
     status: status || null,
